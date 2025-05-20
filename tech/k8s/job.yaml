@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: orders-migration
+  namespace: orders
+spec:
+  template:
+    spec:
+      containers:
+      - name: migration
+        image: kauan4453/order-microservice:latest
+ # Substitua pela sua imagem
+        env:
+        - name: DATABASE_URL
+          value: postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@orders-postgres:5432/$(POSTGRES_DB)
+        envFrom:
+        - secretRef:
+            name: orders-secret
+        command: ["alembic", "upgrade", "head"]
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      restartPolicy: OnFailure

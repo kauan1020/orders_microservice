@@ -5,6 +5,7 @@ from tech.domain.entities.orders import Order
 from tech.interfaces.repositories.order_repository import OrderRepository
 from tech.infra.repositories.sql_alchemy_models import SQLAlchemyOrder
 
+
 class SQLAlchemyOrderRepository(OrderRepository):
     """
     SQLAlchemy implementation of the OrderRepository interface.
@@ -38,12 +39,20 @@ class SQLAlchemyOrderRepository(OrderRepository):
         Returns:
             Order: The domain model instance corresponding to the given SQLAlchemy model.
         """
-        return Order(
+        order = Order(
             id=db_order.id,
             total_price=db_order.total_price,
             product_ids=db_order.product_ids,
             status=db_order.status
         )
+
+
+        if hasattr(db_order, 'user_name'):
+            order.user_name = db_order.user_name
+        if hasattr(db_order, 'user_email'):
+            order.user_email = db_order.user_email
+
+        return order
 
     def add(self, order: Order) -> Order:
         """
@@ -58,12 +67,23 @@ class SQLAlchemyOrderRepository(OrderRepository):
         Returns:
             Order: The added Order object with an updated `id` field.
         """
-        db_order = SQLAlchemyOrder(**order.__dict__)
+        order_dict = {
+            'total_price': order.total_price,
+            'product_ids': order.product_ids,
+            'status': order.status
+        }
+
+        if hasattr(order, 'user_name'):
+            order_dict['user_name'] = order.user_name
+        if hasattr(order, 'user_email'):
+            order_dict['user_email'] = order.user_email
+
+        db_order = SQLAlchemyOrder(**order_dict)
         self.session.add(db_order)
         self.session.commit()
         self.session.refresh(db_order)
-        order.id = db_order.id
-        return order
+
+        return self._to_domain_order(db_order)
 
     def get_by_id(self, order_id: int) -> Optional[Order]:
         """
@@ -114,9 +134,16 @@ class SQLAlchemyOrderRepository(OrderRepository):
             db_order.total_price = order.total_price
             db_order.product_ids = order.product_ids
             db_order.status = order.status
+
+            if hasattr(order, 'user_name') and hasattr(db_order, 'user_name'):
+                db_order.user_name = order.user_name
+            if hasattr(order, 'user_email') and hasattr(db_order, 'user_email'):
+                db_order.user_email = order.user_email
+
             self.session.commit()
             self.session.refresh(db_order)
-        return order
+
+        return self._to_domain_order(db_order)
 
     def delete(self, order: Order) -> None:
         """

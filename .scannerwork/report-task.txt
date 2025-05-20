@@ -1,0 +1,6 @@
+projectKey=orders_microservice
+serverUrl=http://localhost:53927
+serverVersion=9.9.8.100196
+dashboardUrl=http://localhost:53927/dashboard?id=orders_microservice
+ceTaskId=AZbreyBhROHgnkzo0YQz
+ceTaskUrl=http://localhost:53927/api/ce/task?id=AZbreyBhROHgnkzo0YQz

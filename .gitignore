@@ -183,3 +183,4 @@ pyrightconfig.json
 
 
 ../.idea/misc.xml
+/tech/k8s/secrets.yaml

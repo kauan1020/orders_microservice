@@ -10,10 +10,9 @@ class DeleteOrderUseCase(object):
     """
 
     def __init__(self, order_repository: OrderRepository):
-
         self.order_repository = order_repository
 
-    def execute(self, order_id: int) -> dict:
+    async def execute(self, order_id: int) -> dict:
         """
         Delete an order by its ID.
 
@@ -26,9 +25,11 @@ class DeleteOrderUseCase(object):
         Raises:
             ValueError: If the order with the given ID does not exist.
         """
+
         db_order = self.order_repository.get_by_id(order_id)
+
         if not db_order:
             raise ValueError("Order not found")
-
         self.order_repository.delete(db_order)
+
         return {"message": "Order deleted successfully"}

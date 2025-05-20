@@ -1,19 +1,19 @@
-name: Application CI/CD
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [ main, master, develop ]
   pull_request:
-    branches: [main]
-  workflow_dispatch:
+    branches: [ main, master ]
 
 jobs:
-  test:
-    name: Run Tests
+  test-and-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -21,44 +21,54 @@ jobs:
           python-version: '3.10'
 
       - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Install dependencies
-        run: |
-          cd tech
-          poetry config virtualenvs.in-project true
-          poetry install --no-root --no-interaction --no-ansi
-
-      - name: Run tests with pytest
-        run: |
-          cd tech
-          $HOME/.local/bin/poetry run pytest
-
-  build_image:
-    name: Build and Push Image
-    needs: test
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+        uses: snok/install-poetry@v1
         with:
-          fetch-depth: 2
+          version: 1.5.1
+          virtualenvs-create: true
+          virtualenvs-in-project: false
 
-      - name: Check for code changes
-        id: check_changes
+      - name: List directory structure
+        run: ls -la && ls -la tech && find tech -type d | sort
+
+      - name: Install dependencies with Poetry
+        working-directory: ./tech
         run: |
-          if git diff --name-only HEAD^ HEAD | grep -v "^tech/k8s/" | grep -q .; then
-            echo "code_changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "code_changes=false" >> $GITHUB_OUTPUT
+          poetry install
+          poetry add pytest pytest-cov behave coverage --group dev
+          poetry show
+
+      - name: Run unit tests with coverage
+        working-directory: ./tech
+        run: |
+          poetry run pytest tests --cov=tech --cov-report=xml:coverage.xml --cov-report=term
+
+      - name: Run BDD tests with Behave
+        working-directory: ./tech
+        run: |
+          poetry run behave tests/tech/bdd/features
+
+      - name: Move coverage reports to root
+        run: |
+          if [ -f tech/coverage.xml ]; then
+            cp tech/coverage.xml ./coverage.xml
           fi
 
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@master
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=orders_microservice
+            -Dsonar.projectName="Orders Microservice"
+            -Dsonar.sources=tech
+            -Dsonar.python.coverage.reportPaths=coverage.xml
+            -Dsonar.exclusions=**/__pycache__/**,**/tests/**,**/*.html,**/htmlcov/**,**/.scannerwork/**
+            -Dsonar.coverage.exclusions=**/tests/**/*,**/test_*.py,**/__init__.py
+
       - name: Configure AWS credentials
-        if: steps.check_changes.outputs.code_changes == 'true'
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -66,114 +76,79 @@ jobs:
           aws-region: us-east-1
 
       - name: Login to Amazon ECR
-        if: steps.check_changes.outputs.code_changes == 'true'
         id: login-ecr
-        run: |
-          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 264591339294.dkr.ecr.us-east-1.amazonaws.com
+        uses: aws-actions/amazon-ecr-login@v1
 
       - name: Set up Docker Buildx
-        if: steps.check_changes.outputs.code_changes == 'true'
         uses: docker/setup-buildx-action@v2
 
-      - name: Cache Docker layers
-        if: steps.check_changes.outputs.code_changes == 'true'
-        uses: actions/cache@v3
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-
       - name: Build and push Docker image
-        if: steps.check_changes.outputs.code_changes == 'true'
         uses: docker/build-push-action@v4
         with:
           context: ./tech
+          file: ./tech/Dockerfile
           push: true
+          tags: |
+            131793876715.dkr.ecr.us-east-1.amazonaws.com/microservices/orders:latest
+            131793876715.dkr.ecr.us-east-1.amazonaws.com/microservices/orders:${{ github.sha }}
           platforms: linux/amd64
-          tags: 264591339294.dkr.ecr.us-east-1.amazonaws.com/tech-challenge:latest, 264591339294.dkr.ecr.us-east-1.amazonaws.com/tech-challenge:${{ github.sha }}
-          no-cache: false
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-
-      - name: Move cache
-        if: steps.check_changes.outputs.code_changes == 'true'
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-
-      - name: Set build status
-        id: build_status
-        if: steps.check_changes.outputs.code_changes == 'true'
-        run: |
-          echo "build_completed=true" >> $GITHUB_OUTPUT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            POETRY_VERSION=1.5.1
 
   deploy:
-    name: Deploy to Kubernetes
-    needs: build_image
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: test-and-build
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 2
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: us-east-1
 
-      - name: Configure kubectl
-        run: |
-          aws eks update-kubeconfig --region us-east-1 --name tech-eks-cluster
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
 
-      - name: Apply Kubernetes manifests
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name tech-eks-cluster --region us-east-1
+
+      - name: Apply Kubernetes configurations
         run: |
+          # Aplicar namespace
           kubectl apply -f tech/k8s/namespace.yaml
+          
+          # Aplicar configmap
           kubectl apply -f tech/k8s/configmap.yaml
-          kubectl apply -f tech/k8s/deployment.yaml
-          kubectl apply -f tech/k8s/service.yaml
-
-      - name: Restart deployment to pull latest image
-        run: |
-          kubectl rollout restart deployment/tech-app -n tech-namespace
-
-      - name: Wait for deployment to complete
-        run: |
-          kubectl rollout status deployment/tech-app -n tech-namespace --timeout=300s
-
-      - name: Get service URL
-        if: success()
-        run: |
-          kubectl get svc tech-app-service -n tech-namespace -o jsonpath="{.status.loadBalancer.ingress[0].hostname}"
-
-  verify_deployment:
-    name: Verify Deployment Status
-    if: github.event_name == 'workflow_dispatch'
-    needs: deploy
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: us-east-1
-
-      - name: Configure kubectl
-        run: |
-          aws eks update-kubeconfig --region us-east-1 --name tech-eks-cluster
-
-      - name: Check deployment status
-        run: |
-          kubectl get nodes
-          kubectl get namespace tech-namespace
-          kubectl get deployment -n tech-namespace
-          kubectl get pods -n tech-namespace
-          kubectl get svc -n tech-namespace
-          kubectl get svc tech-app-service -n tech-namespace -o jsonpath="{.status.loadBalancer.ingress[0].hostname}"
+          
+          # Aplicar PVC
+          kubectl apply -f tech/k8s/PersistentVolumeClaim.yaml
+          
+          # Aplicar deployment postgres
+          kubectl apply -f tech/k8s/deployment-postgres.yaml
+          
+          # Aplicar serviço postgres
+          kubectl apply -f tech/k8s/postgres-services.yaml
+          
+          # Aplicar job (se necessário)
+          kubectl apply -f tech/k8s/job.yaml
+          
+          # Aplicar deployment do worker (se existir)
+          kubectl apply -f tech/k8s/deployment-worker.yaml
+          
+          # Aplicar deployment principal
+          kubectl set image deployment/orders-service orders-service=131793876715.dkr.ecr.us-east-1.amazonaws.com/microservices/orders:latest -n orders || kubectl apply -f tech/k8s/deployment-orders.yaml
+          
+          # Aplicar serviço principal
+          kubectl apply -f tech/k8s/service-orders.yaml
+          
+          # Verificar status do rollout
+          kubectl rollout status deployment/orders-service -n orders --timeout=300s

@@ -1,0 +1,91 @@
+version: "3.8"
+services:
+  postgres:
+    image: postgres:latest
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orders
+    volumes:
+      - orders_postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres && psql -U postgres -c \"SELECT 1 FROM pg_database WHERE datname = 'orders'\""]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    container_name: orders_postgres
+    networks:
+      - orders-network
+      - microservices-network
+
+  migration:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@orders_postgres:5432/orders
+    command: alembic upgrade head
+    depends_on:
+      postgres:
+        condition: service_healthy
+    container_name: orders_migration
+    networks:
+      - orders-network
+
+  tech_app:
+    build: .
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./:/app
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@orders_postgres:5432/orders
+      SERVICE_PRODUCTS_URL: http://host.docker.internal:8002
+      SERVICE_USERS_URL: http://host.docker.internal:8000
+      RABBITMQ_HOST: host.docker.internal
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: user
+      RABBITMQ_PASS: password
+    command: uvicorn tech.api.app:app --host 0.0.0.0 --port 8003 --reload
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+    container_name: orders_tech_app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - orders-network
+      - microservices-network
+
+  # Worker para processar respostas de pagamento
+  payment_response_worker:
+    build: .
+    volumes:
+      - ./:/app
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@orders_postgres:5432/orders
+      RABBITMQ_HOST: host.docker.internal
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: user
+      SERVICE_ORDERS_URL: http://tech_app:8003/orders  # Modifique esta linha
+      RABBITMQ_PASS: password
+    command: python -m tech.workers.run_payment_response_worker
+    depends_on:
+      - tech_app
+    container_name: orders_payment_response_worker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - orders-network
+      - microservices-network
+
+volumes:
+  orders_postgres_data:
+    name: orders_postgres_data_volume
+
+networks:
+  orders-network:
+    name: orders-network
+  microservices-network:
+    external: true

@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-service
+  namespace: orders
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orders-service
+  template:
+    metadata:
+      labels:
+        app: orders-service
+    spec:
+      containers:
+      - name: orders-service
+        image: kauan4453/order-microservice:latest
+  # Substitua pela sua imagem
+        ports:
+        - containerPort: 8003
+        env:
+        - name: DATABASE_URL
+          value: postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@orders-postgres:5432/$(POSTGRES_DB)
+        - name: SERVICE_PRODUCTS_URL
+          value: http://products-service.products:8002
+        - name: SERVICE_USERS_URL
+          value: http://tech-app.tech-app:8000
+        - name: RABBITMQ_HOST
+          value: rabbitmq.rabbitmq
+        - name: RABBITMQ_PORT
+          value: "5672"
+        - name: RABBITMQ_USER
+          valueFrom:
+            secretKeyRef:
+              name: orders-secret
+              key: rabbitmq-user
+        - name: RABBITMQ_PASS
+          valueFrom:
+            secretKeyRef:
+              name: orders-secret
+              key: rabbitmq-password
+        envFrom:
+        - secretRef:
+            name: orders-secret
+        command: ["uvicorn", "tech.api.app:app", "--host", "0.0.0.0", "--port", "8003"]
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

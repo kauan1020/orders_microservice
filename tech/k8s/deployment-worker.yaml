@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-response-worker
+  namespace: orders
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-response-worker
+  template:
+    metadata:
+      labels:
+        app: payment-response-worker
+    spec:
+      containers:
+      - name: worker
+        image: kauan4453/order-microservice:latest
+        env:
+        - name: DATABASE_URL
+          value: postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@orders-postgres:5432/$(POSTGRES_DB)
+        - name: RABBITMQ_HOST
+          value: rabbitmq.rabbitmq
+        - name: RABBITMQ_PORT
+          value: "5672"
+        - name: RABBITMQ_USER
+          valueFrom:
+            secretKeyRef:
+              name: orders-secret
+              key: rabbitmq-user
+        - name: RABBITMQ_PASS
+          valueFrom:
+            secretKeyRef:
+              name: orders-secret
+              key: rabbitmq-password
+        - name: SERVICE_ORDERS_URL
+          value: http://orders-service:8003/orders
+        envFrom:
+        - secretRef:
+            name: orders-secret
+        command: ["python", "-m", "tech.workers.run_payment_response_worker"]
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
