@@ -123,32 +123,20 @@ jobs:
 
       - name: Apply Kubernetes configurations
         run: |
-          # Aplicar namespace
           kubectl apply -f tech/k8s/namespace.yaml
           
-          # Aplicar configmap
           kubectl apply -f tech/k8s/configmap.yaml
           
-          # Aplicar PVC
           kubectl apply -f tech/k8s/PersistentVolumeClaim.yaml
           
-          # Aplicar deployment postgres
           kubectl apply -f tech/k8s/deployment-postgres.yaml
           
-          # Aplicar serviço postgres
           kubectl apply -f tech/k8s/postgres-services.yaml
           
-          # Aplicar job (se necessário)
           kubectl apply -f tech/k8s/job.yaml
           
-          # Aplicar deployment do worker (se existir)
           kubectl apply -f tech/k8s/deployment-worker.yaml
           
-          # Aplicar deployment principal
           kubectl set image deployment/orders-service orders-service=131793876715.dkr.ecr.us-east-1.amazonaws.com/microservices/orders:latest -n orders || kubectl apply -f tech/k8s/deployment-orders.yaml
           
-          # Aplicar serviço principal
           kubectl apply -f tech/k8s/service-orders.yaml
-          
-          # Verificar status do rollout
-          kubectl rollout status deployment/orders-service -n orders --timeout=300s
