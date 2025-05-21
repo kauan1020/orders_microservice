@@ -9,14 +9,24 @@ spec:
       containers:
       - name: migration
         image: 131793876715.dkr.ecr.us-east-1.amazonaws.com/microservices/orders
- # Substitua pela sua imagem
         env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: orders-secret
+              key: postgres-user
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: orders-secret
+              key: postgres-password
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: orders-secret
+              key: postgres-db
         - name: DATABASE_URL
-          value: postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@orders-postgres:5432/$(POSTGRES_DB)
-        envFrom:
-        - secretRef:
-            name: orders-secret
-        command: ["alembic", "upgrade", "head"]
+          value: postgresql+psycopg://postgres:postgres@orders-postgres:5432/orders
         resources:
           requests:
             memory: "128Mi"
@@ -24,4 +34,5 @@ spec:
           limits:
             memory: "256Mi"
             cpu: "200m"
+        command: ["alembic", "upgrade", "head"]
       restartPolicy: OnFailure
