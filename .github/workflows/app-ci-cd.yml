@@ -5,10 +5,13 @@ on:
     branches: [ main, master, develop ]
   pull_request:
     branches: [ main, master ]
+  repository_dispatch:
+    types: [trigger-deployment]
 
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
+    if: github.event_name != 'repository_dispatch'
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -97,10 +100,10 @@ jobs:
           build-args: |
             POETRY_VERSION=1.5.1
 
-  deploy:
+  deploy-normal:
     needs: test-and-build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name != 'repository_dispatch'
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -125,17 +128,122 @@ jobs:
         run: |
           kubectl apply -f tech/k8s/namespace.yaml
           
-          kubectl apply -f tech/k8s/configmap.yaml
+          if [ -f tech/k8s/configmap.yaml ]; then
+            kubectl apply -f tech/k8s/configmap.yaml
+          fi
           
-          kubectl apply -f tech/k8s/PersistentVolumeClaim.yaml
+          if [ -f tech/k8s/PersistentVolumeClaim.yaml ]; then
+            kubectl apply -f tech/k8s/PersistentVolumeClaim.yaml
+          fi
           
           kubectl apply -f tech/k8s/deployment-postgres.yaml
           
           kubectl apply -f tech/k8s/postgres-services.yaml
           
-          kubectl apply -f tech/k8s/job.yaml
+          if [ -f tech/k8s/job.yaml ]; then
+            JOB_NAME=$(grep -o 'name: [a-zA-Z0-9-]*' tech/k8s/job.yaml | head -1 | awk '{print $2}')
+            NAMESPACE=$(grep -o 'namespace: [a-zA-Z0-9-]*' tech/k8s/namespace.yaml | head -1 | awk '{print $2}')
+            
+            if [ -z "$NAMESPACE" ]; then
+              NAMESPACE="orders"
+            fi
+            
+            if [ -n "$JOB_NAME" ]; then
+              kubectl delete job $JOB_NAME -n $NAMESPACE --ignore-not-found=true
+            else
+              kubectl delete job orders-db-migration -n $NAMESPACE --ignore-not-found=true
+            fi
+            
+            kubectl apply -f tech/k8s/job.yaml
+          fi
           
-          kubectl apply -f tech/k8s/deployment-worker.yaml
+          if [ -f tech/k8s/deployment-worker.yaml ]; then
+            kubectl apply -f tech/k8s/deployment-worker.yaml
+          fi
+          
+          kubectl set image deployment/orders-service orders-service=131793876715.dkr.ecr.us-east-1.amazonaws.com/microservices/orders:latest -n orders || kubectl apply -f tech/k8s/deployment-orders.yaml
+          
+          kubectl apply -f tech/k8s/service-orders.yaml
+
+      - name: Trigger other microservices
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.GH_PAT }}" \
+            https://api.github.com/repos/kauan1020/payments_microservice/dispatches \
+            -d '{"event_type":"trigger-deployment","client_payload":{"repository":"orders_microservice"}}'
+            
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.GH_PAT }}" \
+            https://api.github.com/repos/kauan1020/users_microservice/dispatches \
+            -d '{"event_type":"trigger-deployment","client_payload":{"repository":"orders_microservice"}}'
+            
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.GH_PAT }}" \
+            https://api.github.com/repos/kauan1020/product_microservice/dispatches \
+            -d '{"event_type":"trigger-deployment","client_payload":{"repository":"orders_microservice"}}'
+
+  deploy-triggered:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'repository_dispatch'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name tech-eks-cluster --region us-east-1
+
+      - name: Apply Kubernetes configurations
+        run: |
+          kubectl apply -f tech/k8s/namespace.yaml
+          
+          if [ -f tech/k8s/configmap.yaml ]; then
+            kubectl apply -f tech/k8s/configmap.yaml
+          fi
+          
+          if [ -f tech/k8s/PersistentVolumeClaim.yaml ]; then
+            kubectl apply -f tech/k8s/PersistentVolumeClaim.yaml
+          fi
+          
+          kubectl apply -f tech/k8s/deployment-postgres.yaml
+          
+          kubectl apply -f tech/k8s/postgres-services.yaml
+          
+          if [ -f tech/k8s/job.yaml ]; then
+            JOB_NAME=$(grep -o 'name: [a-zA-Z0-9-]*' tech/k8s/job.yaml | head -1 | awk '{print $2}')
+            NAMESPACE=$(grep -o 'namespace: [a-zA-Z0-9-]*' tech/k8s/namespace.yaml | head -1 | awk '{print $2}')
+            
+            if [ -z "$NAMESPACE" ]; then
+              NAMESPACE="orders"
+            fi
+            
+            if [ -n "$JOB_NAME" ]; then
+              kubectl delete job $JOB_NAME -n $NAMESPACE --ignore-not-found=true
+            else
+              kubectl delete job orders-db-migration -n $NAMESPACE --ignore-not-found=true
+            fi
+            
+            kubectl apply -f tech/k8s/job.yaml
+          fi
+          
+          if [ -f tech/k8s/deployment-worker.yaml ]; then
+            kubectl apply -f tech/k8s/deployment-worker.yaml
+          fi
           
           kubectl set image deployment/orders-service orders-service=131793876715.dkr.ecr.us-east-1.amazonaws.com/microservices/orders:latest -n orders || kubectl apply -f tech/k8s/deployment-orders.yaml
           

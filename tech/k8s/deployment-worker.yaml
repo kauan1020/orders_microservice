@@ -34,8 +34,9 @@ spec:
               key: postgres-db
         - name: DATABASE_URL
           value: postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@orders-postgres:5432/$(POSTGRES_DB)
+        # Corrigido o nome do host do RabbitMQ para apontar para o namespace payments
         - name: RABBITMQ_HOST
-          value: rabbitmq.rabbitmq
+          value: rabbitmq.payments.svc.cluster.local
         - name: RABBITMQ_PORT
           value: "5672"
         - name: RABBITMQ_USER
@@ -49,7 +50,7 @@ spec:
               name: orders-secret
               key: rabbitmq-password
         - name: SERVICE_ORDERS_URL
-          value: http://orders-service:8003/orders
+          value: http://orders-service.orders.svc.cluster.local:8003/orders
         envFrom:
         - secretRef:
             name: orders-secret

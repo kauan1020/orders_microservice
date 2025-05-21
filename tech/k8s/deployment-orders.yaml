@@ -37,11 +37,12 @@ spec:
         - name: DATABASE_URL
           value: postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@orders-postgres:5432/$(POSTGRES_DB)
         - name: SERVICE_PRODUCTS_URL
-          value: http://products-service.products:8002
+          value: http://products-service.products.svc.cluster.local:8002
         - name: SERVICE_USERS_URL
-          value: http://tech-app.tech-app:8000
+          value: http://tech-app.tech-app.svc.cluster.local:8000
+        # Corrigido o host do RabbitMQ
         - name: RABBITMQ_HOST
-          value: rabbitmq.rabbitmq
+          value: rabbitmq.payments.svc.cluster.local
         - name: RABBITMQ_PORT
           value: "5672"
         - name: RABBITMQ_USER
