@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: orders-service
-        image: kauan4453/order-microservice:latest
+        image: 131793876715.dkr.ecr.us-east-1.amazonaws.com/microservices/orders
   # Substitua pela sua imagem
         ports:
         - containerPort: 8003

@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: worker
-        image: kauan4453/order-microservice:latest
+        image: 131793876715.dkr.ecr.us-east-1.amazonaws.com/microservices/orders
         env:
         - name: DATABASE_URL
           value: postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@orders-postgres:5432/$(POSTGRES_DB)
