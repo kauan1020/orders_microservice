@@ -119,6 +119,8 @@ O microsserviço implementa o padrão Circuit Breaker para aumentar a resiliênc
 ### Executando Testes Unitários
 
 ```bash
+cd tech
+
 # Execute todos os testes
 pytest
 
