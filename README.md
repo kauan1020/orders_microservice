@@ -119,6 +119,8 @@ O microsserviço implementa o padrão Circuit Breaker para aumentar a resiliênc
 ### Executando Testes Unitários
 
 ```bash
+cd tech
+
 # Execute todos os testes
 pytest
 
@@ -134,6 +136,8 @@ pytest --cov=tech --cov-report=html tests/
 O projeto utiliza testes BDD (Behavior-Driven Development) com o framework Behave para validar os requisitos de negócio de forma clara e compreensível.
 
 ```bash
+
+cd tech 
 # Execute todos os testes BDD
 behave tests/tech/bdd/features/
 
@@ -165,14 +169,10 @@ Feature: Processamento de pedidos
 
 ### Cobertura de Testes
 
+![coverage.png](coverage.png)
 
-![Cobertura de Testes](.coverage.png)
+![bdd.png](bdd.png)
+
+![sonar.png](sonar.png)
 
 > **Nota**: A imagem acima mostra a estrutura de diretórios dos testes, incluindo a organização dos testes BDD que seguem o padrão de features e steps.
-
-## Repositórios Relacionados
-
-- [Microsserviço de Produtos](https://github.com/sua-organizacao/products-microservice)
-- [Microsserviço de Pagamentos](https://github.com/sua-organizacao/payments-microservice)
-- [Microsserviço de Usuários](https://github.com/sua-organizacao/users-microservice)
-- [API Gateway](https://github.com/sua-organizacao/api-gateway)

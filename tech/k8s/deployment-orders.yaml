@@ -39,8 +39,7 @@ spec:
         - name: SERVICE_PRODUCTS_URL
           value: http://products-service.products.svc.cluster.local:8002
         - name: SERVICE_USERS_URL
-          value: http://tech-app.tech-app.svc.cluster.local:8000
-        # Corrigido o host do RabbitMQ
+          value: http://users-auth-service.users.svc.cluster.local:8000
         - name: RABBITMQ_HOST
           value: rabbitmq.payments.svc.cluster.local
         - name: RABBITMQ_PORT
