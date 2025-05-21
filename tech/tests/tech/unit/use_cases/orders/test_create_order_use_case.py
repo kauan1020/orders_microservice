@@ -152,6 +152,42 @@ class TestCreateOrderUseCase:
         assert not hasattr(result, "user_info") or result.user_info is None
 
     @pytest.mark.asyncio
+    async def test_execute_product_gateway_error(self):
+        """Test handling of product gateway errors."""
+        # Arrange
+        order_data = OrderCreate(product_ids=[1, 2, 3], cpf=None)
+        self.product_gateway.get_products.side_effect = ValueError("Product service unavailable")
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="Product service unavailable"):
+            await self.use_case.execute(order_data)
+
+        self.product_gateway.get_products.assert_called_once_with([1, 2, 3])
+        self.user_gateway.get_user_by_cpf.assert_not_called()
+        self.order_repository.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_empty_product_list(self):
+        """Test creating an order when no products are returned from gateway."""
+        # Arrange
+        order_data = OrderCreate(product_ids=[1, 2, 3], cpf=None)
+        self.product_gateway.get_products.return_value = []
+
+        # Act
+        result = await self.use_case.execute(order_data)
+
+        # Assert
+        self.product_gateway.get_products.assert_called_once_with([1, 2, 3])
+
+        # Verify the Order was created with zero price
+        order_call = self.order_repository.add.call_args[0][0]
+        assert order_call.total_price == 0.0
+        assert order_call.product_ids == "1,2,3"
+
+        # Check the response has empty products list
+        assert result.products == []
+
+    @pytest.mark.asyncio
     @patch('tech.use_cases.orders.create_order_use_case.ProductGatewayFactory')
     @patch('tech.use_cases.orders.create_order_use_case.os.getenv')
     async def test_create_use_case_with_resilience(self, mock_getenv, mock_factory):

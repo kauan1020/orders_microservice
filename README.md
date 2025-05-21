@@ -1,138 +1,178 @@
-# Documentação do Projeto
+# Microsserviço de Pedidos
 
-## Desenho da Arquitetura
+Este repositório contém o microsserviço de pedidos, responsável por gerenciar o ciclo de vida de pedidos na plataforma, incluindo criação, atualização de status e integração com o serviço de pagamentos.
 
-Este sistema foi projetado para resolver os problemas enfrentados por um restaurante que está expandindo, mas sofre com dificuldades no gerenciamento de pedidos devido ao aumento na demanda. A solução é composta por uma aplicação de autoatendimento integrada a uma infraestrutura escalável, utilizando **FastAPI** como framework backend, **SQLAlchemy** e **Alembic** para manipulação de dados e migração de banco, e **Kubernetes** (via Minikube) para orquestração de contêineres.
+## Tecnologias
 
----
+- **Framework**: FastAPI
+- **Linguagem**: Python 3.10+
+- **Banco de Dados**: PostgreSQL
+- **Mensageria**: RabbitMQ
+- **Testes**: Pytest + Coverage
+- **Padrões**: Clean Architecture, Circuit Breaker
 
-## 1. Requisitos do Negócio
+## Estrutura do Projeto
 
-### Melhoria na Experiência do Cliente:
-- Totens de autoatendimento para permitir que os clientes façam seus pedidos sem intervenção de atendentes.
-- Apresentação de produtos (lanche, bebida, acompanhamento, sobremesa) com preço e descrição.
-- Sistema de pagamento integrado via QR Code (Mercado Pago).
-- Rastreamento do status do pedido pelo cliente em tempo real: **Recebido → Em preparação → Pronto → Finalizado**.
-- Notificação do cliente quando o pedido estiver pronto para retirada.
+```
+tech/
+├── api/
+│   └── order_router.py
+├── domain/
+│   └── entities/
+│       └── order.py
+├── infra/
+│   ├── databases/
+│   │   └── database.py
+│   ├── factories/
+│   │   ├── product_gateway_factory.py
+│   │   └── user_gateway_factory.py
+│   ├── gateways/
+│   │   └── order_gateway.py
+│   └── rabbitmq_broker.py
+├── interfaces/
+│   ├── controllers/
+│   │   └── order_controller.py
+│   ├── gateways/
+│   │   └── order_gateway.py
+│   ├── message_broker.py
+│   └── schemas/
+│       └── order_schema.py
+└── use_cases/
+    └── orders/
+        ├── create_order_use_case.py
+        ├── delete_order_use_case.py
+        ├── list_orders_use_case.py
+        ├── request_payment_use_case.py
+        └── update_order_status_use_case.py
+```
 
-### Gestão para a Cozinha e Administração:
-- Garantir que os pedidos pagos sejam enviados automaticamente para a cozinha, com visibilidade em painéis administrativos.
-- Sistema administrativo para gerenciar produtos, clientes e promoções.
+## Configuração do Ambiente
 
-### Problema Atual de Performance:
-- **Totem de autoatendimento enfrenta lentidão em horários de pico.**
-- **Solução proposta**: Implementação de um sistema escalável, que usa Kubernetes e Horizontal Pod Autoscaler (HPA), garantindo maior disponibilidade e desempenho durante picos de uso.
+### Requisitos
 
----
+- Python 3.10+
+- PostgreSQL 13+
+- RabbitMQ 3.8+
 
-## 2. Requisitos de Infraestrutura
+## Banco de Dados
 
-### 2.1 Cluster Kubernetes
-- **Orquestrador**: Minikube (ambiente local para desenvolvimento).
-- **Recursos Kubernetes**:
-  - **Deployments**: Cada serviço possui réplicas gerenciadas para disponibilidade.
-  - **Horizontal Pod Autoscaler (HPA)**: Escala os pods de acordo com a carga da aplicação (CPU/memória).
-  - **Secrets**: Para armazenar dados sensíveis, como credenciais do banco de dados e chave da API do Mercado Pago.
-  - **ConfigMaps**: Para armazenar configurações não sensíveis, como categorias fixas (lanche, bebida, etc.).
-  - **Persistent Volume (PV)** e **Persistent Volume Claim (PVC)**: Para garantir persistência de dados do PostgreSQL.
+### Modelo de Dados
 
-### 2.2 Serviços da Aplicação
-O sistema é dividido em **quatro serviços principais**:
+```sql
+CREATE TABLE orders (
+    id SERIAL PRIMARY KEY,
+    user_cpf VARCHAR(11) NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    total_price DECIMAL(10, 2) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
 
-#### **2.2.1 Serviço de Pedidos**
-- **API**: `/orders`
-- **Funcionalidade**:
-  - Realiza o checkout do pedido.
-  - Retorna o status do pedido.
-  - Atualiza o status do pedido conforme ele avança no fluxo.
-  - Exclui pedidos.
-- **Banco de Dados**:
-  - Relaciona os pedidos aos produtos (muitos-para-muitos).
-  - Salva histórico de status.
-- **Exemplo**:
-  - **POST** `/orders/checkout`: Cria um pedido.
-  - **GET** `/orders`: Lista pedidos com prioridade (**Pronto > Em preparação > Recebido**).
+CREATE TABLE order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    product_id VARCHAR(36) NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    unit_price DECIMAL(10, 2) NOT NULL,
+    UNIQUE (order_id, product_id)
+);
+```
 
-#### **2.2.2 Serviço de Pagamento**
-- **API**: `/payments`
-- **Funcionalidade**:
-  - Integração com Mercado Pago para gerar QR Code.
-  - Gerencia o status do pagamento.
-  - Recebe atualizações via Webhook.
-- **Banco de Dados**:
-  - Armazena transações e status (**Aprovado/Rejeitado**).
-- **Exemplo**:
-  - **POST** `/payments`: Gera QR Code.
-  - **POST** `/payments/webhook`: Atualiza status do pagamento.
+## Endpoints da API
 
-#### **2.2.3 Serviço de Produtos**
-- **API**: `/products`
-- **Funcionalidade**:
-  - Gerencia produtos disponíveis no sistema (CRUD completo).
-  - Filtra produtos por categoria.
-- **Banco de Dados**:
-  - Armazena categorias, descrições, preços e imagens.
-- **Exemplo**:
-  - **POST** `/products`: Cria novo produto.
-  - **GET** `/products/{categoria}`: Lista produtos por categoria.
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/` | Lista todos os pedidos |
+| GET | `/{order_id}` | Obtém detalhes de um pedido específico |
+| POST | `/checkout` | Cria um novo pedido |
+| PUT | `/{order_id}` | Atualiza o status de um pedido |
+| DELETE | `/{order_id}` | Remove um pedido |
+| POST | `/{order_id}/request-payment` | Inicia o processamento de pagamento |
 
-#### **2.2.4 Serviço de Usuários**
-- **API**: `/users`
-- **Funcionalidade**:
-  - Gerencia o cadastro e dados de clientes.
-  - Recupera informações por CPF.
-- **Banco de Dados**:
-  - Relaciona clientes aos pedidos realizados.
-- **Exemplo**:
-  - **POST** `/users`: Cadastra cliente.
-  - **GET** `/users/cpf/{cpf}`: Busca cliente pelo CPF.
+## Integração com Outros Serviços
 
-### 2.3 Banco de Dados
-- **PostgreSQL**:
-  - Gerenciado dentro do cluster Kubernetes, com armazenamento persistente configurado via PV/PVC.
-  - Esquema relacional projetado para suportar consultas rápidas e integridade de dados.
-  - **Migrações de Esquema**: Feitas utilizando **Alembic**, garantindo versionamento do banco.
+O microsserviço de pedidos se integra com:
 
----
+1. **Serviço de Produtos**: Para validar disponibilidade e obter informações atualizadas dos produtos
+2. **Serviço de Usuários**: Para validar dados do usuário ao criar pedidos
+3. **Serviço de Pagamentos**: Para processar os pagamentos dos pedidos
 
-## 3. Diagrama de Arquitetura
+### Resilience Patterns
 
-## 4. Configurações Detalhadas
+O microsserviço implementa o padrão Circuit Breaker para aumentar a resiliência nas chamadas para os serviços externos:
 
-### **ConfigMap**
-- Contém informações não sensíveis:
-  - URLs da API do Mercado Pago.
-  - Categorias de produtos.
+- Evita sobrecarga de serviços já indisponíveis
+- Falha rapidamente quando serviços dependentes estão indisponíveis
+- Recuperação gradual com estado "half-open"
 
-### **Secrets**
-- Armazena credenciais e chaves sensíveis:
-  - Credenciais do PostgreSQL.
-  - Chave da API Mercado Pago.
+## Fluxo de Pagamento
 
-### **Horizontal Pod Autoscaler (HPA)**
-- Configurado para escalar dinamicamente:
-  - **Pedidos API**: De 2 a 5 réplicas com base em 50% de uso da CPU.
-  - **Pagamento API**: De 1 a 5 réplicas com base em 70% de uso da CPU.
+1. Cliente cria um pedido via `/checkout`
+2. Pedido é criado com status `PENDING`
+3. Cliente solicita pagamento via `/{order_id}/request-payment`
+4. Uma mensagem é enviada para a fila do RabbitMQ
+5. O microsserviço de pagamentos processa a solicitação
+6. O status do pedido é atualizado após o processamento do pagamento
 
-### **Persistent Volume (PV)**
-- Garante persistência dos dados do banco, mesmo em caso de reinicialização:
-  - 10 GB de armazenamento local configurado no Minikube.
+## Testes
 
----
+### Executando Testes Unitários
 
-## 5. Solução para Problema de Performance
+```bash
+# Execute todos os testes
+pytest
 
-- **Problema**: Totem de autoatendimento sofre com lentidão durante picos de tráfego.
-- **Solução**:
-  - Implementação de **HPA** para escalar automaticamente o backend.
-  - Configuração de **Ingress Controller** para balancear o tráfego entre os pods.
-  - Banco de dados com armazenamento persistente para maior confiabilidade.
+# Execute testes com cobertura
+pytest --cov=tech tests/
 
----
+# Gere relatório HTML de cobertura
+pytest --cov=tech --cov-report=html tests/
+```
 
-## 6. Tecnologias Utilizadas
+### Executando Testes BDD
 
-- **Backend**: FastAPI, SQLAlchemy, Alembic.
-- **Banco de Dados**: PostgreSQL.
-- **Orquestração**: Kubernetes (via Minikube).
-- **Integração de Pagamento**: Mercado Pago.
+O projeto utiliza testes BDD (Behavior-Driven Development) com o framework Behave para validar os requisitos de negócio de forma clara e compreensível.
+
+```bash
+# Execute todos os testes BDD
+behave tests/tech/bdd/features/
+
+# Execute um cenário específico
+behave tests/tech/bdd/features/orders.feature
+
+# Execute testes com tags específicas
+behave tests/tech/bdd/features/ --tags=checkout,payment
+
+# Execute e gere relatório em formato JUnit (para integração com CI/CD)
+behave tests/tech/bdd/features/ --junit
+```
+
+#### Exemplo de Cenário BDD
+
+```gherkin
+Feature: Processamento de pedidos
+  Como um cliente
+  Eu quero criar um pedido com produtos
+  Para que eu possa finalizar minha compra
+
+  Scenario: Criar um pedido com produtos válidos
+    Given que existem produtos disponíveis no catálogo
+    When eu crio um pedido com os produtos "1,2,3"
+    Then o pedido deve ser criado com sucesso
+    And o status do pedido deve ser "RECEIVED"
+    And o preço total deve ser calculado corretamente
+```
+
+### Cobertura de Testes
+
+
+![Cobertura de Testes](.coverage.png)
+
+> **Nota**: A imagem acima mostra a estrutura de diretórios dos testes, incluindo a organização dos testes BDD que seguem o padrão de features e steps.
+
+## Repositórios Relacionados
+
+- [Microsserviço de Produtos](https://github.com/sua-organizacao/products-microservice)
+- [Microsserviço de Pagamentos](https://github.com/sua-organizacao/payments-microservice)
+- [Microsserviço de Usuários](https://github.com/sua-organizacao/users-microservice)
+- [API Gateway](https://github.com/sua-organizacao/api-gateway)

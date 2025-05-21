@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: postgres
-        image: postgres:latest
+        image: postgres:13
         ports:
         - containerPort: 5432
         env:
@@ -34,9 +34,12 @@ spec:
             secretKeyRef:
               name: orders-secret
               key: postgres-db
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
         volumeMounts:
         - name: postgres-data
           mountPath: /var/lib/postgresql/data
+          subPath: pgdata
         - name: init-script
           mountPath: /docker-entrypoint-initdb.d
         readinessProbe:
@@ -58,8 +61,9 @@ spec:
             cpu: "500m"
       volumes:
       - name: postgres-data
-        persistentVolumeClaim:
-          claimName: orders-postgres-pvc
+        hostPath:
+          path: /mnt/data/postgres-orders
+          type: DirectoryOrCreate
       - name: init-script
         configMap:
           name: orders-db-init
