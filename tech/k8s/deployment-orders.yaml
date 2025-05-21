@@ -16,10 +16,24 @@ spec:
       containers:
       - name: orders-service
         image: 131793876715.dkr.ecr.us-east-1.amazonaws.com/microservices/orders
-  # Substitua pela sua imagem
         ports:
         - containerPort: 8003
         env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: orders-secret
+              key: postgres-user
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: orders-secret
+              key: postgres-password
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: orders-secret
+              key: postgres-db
         - name: DATABASE_URL
           value: postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@orders-postgres:5432/$(POSTGRES_DB)
         - name: SERVICE_PRODUCTS_URL
